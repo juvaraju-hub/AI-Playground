@@ -19,6 +19,7 @@ In any Claude Code session:
 ✅ Git repository status and branch
 ✅ Development tools (git, node, python, docker, etc.)
 ✅ MCP server connectivity
+✅ Terraform MCP registration and guardrail validation
 ✅ Cloud credentials (AWS, GCP, Azure)
 ✅ Kubernetes context and namespace
 ✅ Language-specific dependencies
@@ -170,6 +171,7 @@ The `--refresh-mcp` flag helps reconnect to MCP servers. Common servers include:
 | **github** | GitHub API | `/mcp` → GitHub |
 | **slack** | Team messaging | `/mcp` → Slack |
 | **webexapis** | Webex collaboration | `/mcp` → Webex |
+| **terraform** | Terraform Cloud via Codex MCP | `codex mcp add terraform -- uv run --env-file ~/.config/codex/mcp-terraform.env --directory /path/to/terraform-cloud-mcp terraform-cloud-mcp` |
 | **postgres** | Database access | Configure in settings |
 | **playwright** | Browser automation | Install via MCP |
 
@@ -179,6 +181,22 @@ The `--refresh-mcp` flag helps reconnect to MCP servers. Common servers include:
 2. Select "Add server" or "Connect"
 3. Authenticate via OAuth
 4. Run `/claude-start --refresh-mcp` to verify
+
+For Terraform MCP, create `~/.config/codex/mcp-terraform.env` with:
+
+```bash
+TFC_TOKEN=...
+TFC_ADDRESS=https://app.terraform.io
+ENABLE_DELETE_TOOLS=false
+READ_ONLY_TOOLS=true
+```
+
+Then register it with:
+
+```bash
+codex mcp add terraform -- uv run --env-file ~/.config/codex/mcp-terraform.env --directory /path/to/terraform-cloud-mcp terraform-cloud-mcp
+codex mcp get terraform
+```
 
 ## 📖 Team Adoption Guide
 

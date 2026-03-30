@@ -20,6 +20,7 @@ Universal bootstrap and preflight validation skill for development environments.
 **Features:**
 - ✅ Environment validation
 - ✅ MCP server management
+- ✅ Terraform MCP verification with read-only guardrails
 - ✅ Cloud credentials check (AWS, GCP, Azure)
 - ✅ Kubernetes context validation
 - ✅ Language runtime checks
@@ -51,6 +52,30 @@ codex-start --check-only
 - ✅ Optional OAuth MCP refresh before launching Codex
 
 [Full Documentation →](tools/codex-start/README.md)
+
+### Codex Start Skill
+
+Parallel bootstrap and preflight validation skill for Codex environments.
+
+**Location:** `.codex/skills/codex-start/`
+
+**Quick start:**
+```bash
+/codex-start                     # Quick checks
+/codex-start --refresh-mcp       # Refresh MCP connections
+/codex-start --full              # Comprehensive validation
+```
+
+**Features:**
+- ✅ Environment validation
+- ✅ MCP server management
+- ✅ Terraform MCP verification with read-only guardrails
+- ✅ Cloud credentials check (AWS, GCP, Azure)
+- ✅ Kubernetes context validation
+- ✅ Language runtime checks
+- ✅ Custom project checks
+
+[Full Documentation →](.codex/skills/codex-start/README.md)
 
 ## 🚀 Using These Skills in Your Project
 
@@ -97,6 +122,7 @@ cp -r .claude/skills/claude-start ~/.claude/skills/
 | Skill | Description | Usage |
 |-------|-------------|-------|
 | **claude-start** | Environment bootstrap & preflight | `/claude-start [--refresh-mcp] [--full]` |
+| **codex-start** | Codex environment bootstrap & preflight | `/codex-start [--refresh-mcp] [--full]` |
 
 More skills coming soon!
 
@@ -151,6 +177,12 @@ cd your-repo
 claude
 /claude-start --full
 
+# Or in Codex
+/codex-start --full
+
+# Or via the reusable launcher
+codex-start --check-only
+
 # Claude guides through any missing setup
 ```
 
@@ -158,12 +190,18 @@ claude
 ```bash
 # Start of day
 /claude-start --refresh-mcp
+/codex-start --refresh-mcp
+codex-start --refresh-mcp
 
 # Before deployment
 /claude-start --full
+/codex-start --full
+codex-start
 
 # Quick status check
 /claude-start
+/codex-start
+codex-start --check-only
 ```
 
 ### CI/CD Integration
@@ -180,6 +218,31 @@ jobs:
       - uses: actions/checkout@v3
       - name: Run preflight checks
         run: bash .claude/skills/claude-start/preflight.sh --skip-aws --skip-k8s
+```
+
+### Terraform MCP Setup
+If your team uses Terraform Cloud through Codex MCP, both `claude-start` and `codex-start` now check whether the `terraform` MCP is registered and whether its local guardrails are safe.
+
+Expected local env file:
+
+```bash
+~/.config/codex/mcp-terraform.env
+```
+
+Recommended contents:
+
+```bash
+TFC_TOKEN=...
+TFC_ADDRESS=https://app.terraform.io
+ENABLE_DELETE_TOOLS=false
+READ_ONLY_TOOLS=true
+```
+
+Register the MCP:
+
+```bash
+codex mcp add terraform -- uv run --env-file ~/.config/codex/mcp-terraform.env --directory /path/to/terraform-cloud-mcp terraform-cloud-mcp
+codex mcp get terraform
 ```
 
 ## 🛠️ Customization Examples
