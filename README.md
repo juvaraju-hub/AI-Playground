@@ -27,6 +27,31 @@ Universal bootstrap and preflight validation skill for development environments.
 
 [Full Documentation →](.claude/skills/claude-start/README.md)
 
+### Codex Start
+
+Reusable Codex preflight launcher for development teams.
+
+**Location:** `tools/codex-start/`
+
+**Quick start:**
+```bash
+cd tools/codex-start
+./install.sh
+
+codex-start
+codex-start --refresh-mcp
+codex-start --check-only
+```
+
+**Features:**
+- ✅ GitHub CLI auth check
+- ✅ AWS CLI auth check
+- ✅ Kubernetes context validation
+- ✅ MCP server configuration checks
+- ✅ Optional OAuth MCP refresh before launching Codex
+
+[Full Documentation →](tools/codex-start/README.md)
+
 ## 🚀 Using These Skills in Your Project
 
 ### Option 1: Copy to Your Repo
@@ -74,6 +99,12 @@ cp -r .claude/skills/claude-start ~/.claude/skills/
 | **claude-start** | Environment bootstrap & preflight | `/claude-start [--refresh-mcp] [--full]` |
 
 More skills coming soon!
+
+## 🧰 Available Tools
+
+| Tool | Description | Usage |
+|------|-------------|-------|
+| **codex-start** | Codex bootstrap & preflight launcher | `codex-start [--refresh-mcp] [--check-only]` |
 
 ## 🤝 Contributing
 

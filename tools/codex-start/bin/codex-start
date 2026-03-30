@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+prompt_mode=1
+check_only=0
+launch_codex=1
+refresh_mcp=${CODEX_START_REFRESH_MCP:-0}
+open_aws_console=${CODEX_START_OPEN_AWS_CONSOLE:-0}
+aws_profile_name=${CODEX_START_AWS_PROFILE:-${AWS_PROFILE:-}}
+mcp_oauth_servers=${CODEX_START_MCP_OAUTH_SERVERS:-"atlassian webexapis"}
+mcp_passive_servers=${CODEX_START_MCP_PASSIVE_SERVERS:-"terraform-cloud kubernetes"}
+kube_contexts=${CODEX_START_KUBE_CONTEXTS:-}
+
+declare -a codex_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check-only)
+      check_only=1
+      launch_codex=0
+      shift
+      ;;
+    --no-launch)
+      launch_codex=0
+      shift
+      ;;
+    --yes|--no-prompt)
+      prompt_mode=0
+      shift
+      ;;
+    --refresh-mcp)
+      refresh_mcp=1
+      shift
+      ;;
+    --open-aws-console)
+      open_aws_console=1
+      shift
+      ;;
+    --help|-h)
+      cat <<'USAGE'
+Usage: codex-start [options] [-- codex args...]
+
+Options:
+  --check-only        Show status without launching logins or Codex
+  --no-launch         Run preflight only, then exit
+  --yes, --no-prompt  Run suggested login commands without interactive prompts
+  --refresh-mcp       Prompt to refresh OAuth MCP servers this run
+  --open-aws-console  Open AWS Console in the browser after AWS auth succeeds
+  --help              Show this help text
+
+Environment:
+  CODEX_START_AWS_PROFILE         AWS profile to use for sts/sso checks
+  CODEX_START_MCP_OAUTH_SERVERS   Space-separated OAuth MCP servers to refresh when requested
+  CODEX_START_MCP_PASSIVE_SERVERS Space-separated non-OAuth MCP servers to verify as configured
+  CODEX_START_REFRESH_MCP         Set to 1 to refresh OAuth MCP servers by default
+  CODEX_START_KUBE_CONTEXTS       Space-separated kube contexts to validate; defaults to current context only
+  CODEX_START_OPEN_AWS_CONSOLE    Set to 1 to open AWS Console after auth
+USAGE
+      exit 0
+      ;;
+    --)
+      shift
+      codex_args+=("$@")
+      break
+      ;;
+    *)
+      codex_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+log() {
+  printf '[codex-start] %s\n' "$*"
+}
+
+warn() {
+  printf '[codex-start] WARN: %s\n' "$*" >&2
+}
+
+confirm() {
+  local message=${1:-Continue?}
+  if [[ "$prompt_mode" -eq 0 ]]; then
+    return 0
+  fi
+  local reply
+  printf '%s [Y/n] ' "$message" >&2
+  read -r reply || true
+  [[ -z "$reply" || "$reply" =~ ^[Yy]$ ]]
+}
+
+require_cmd() {
+  local name=$1
+  if command -v "$name" >/dev/null 2>&1; then
+    return 0
+  fi
+  warn "Missing command: $name"
+  return 1
+}
+
+check_gh() {
+  require_cmd gh || return 0
+  if gh auth status -h github.com >/dev/null 2>&1; then
+    log 'GitHub CLI auth is ready.'
+    return 0
+  fi
+  if [[ "$check_only" -eq 1 ]]; then
+    warn 'GitHub CLI auth is missing.'
+    return 0
+  fi
+  if confirm 'GitHub CLI auth is missing. Run gh auth login now?'; then
+    gh auth login -h github.com
+  fi
+}
+
+check_aws() {
+  require_cmd aws || return 0
+
+  local -a aws_base=(aws)
+  local desc='AWS CLI auth'
+  if [[ -n "$aws_profile_name" ]]; then
+    aws_base+=(--profile "$aws_profile_name")
+    desc="$desc (profile: $aws_profile_name)"
+  fi
+
+  if "${aws_base[@]}" sts get-caller-identity >/dev/null 2>&1; then
+    log "$desc is ready."
+    if [[ "$open_aws_console" == "1" ]] && command -v open >/dev/null 2>&1; then
+      open 'https://console.aws.amazon.com/' >/dev/null 2>&1 || true
+    fi
+    return 0
+  fi
+
+  if [[ "$check_only" -eq 1 ]]; then
+    warn "$desc is missing or expired."
+    return 0
+  fi
+
+  if [[ -n "$aws_profile_name" ]]; then
+    if confirm "AWS auth is missing or expired. Run aws sso login --profile $aws_profile_name now?"; then
+      aws sso login --profile "$aws_profile_name"
+      if [[ "$open_aws_console" == "1" ]] && command -v open >/dev/null 2>&1; then
+        open 'https://console.aws.amazon.com/' >/dev/null 2>&1 || true
+      fi
+    fi
+  else
+    warn 'AWS auth is missing or expired, and no profile is configured. Set CODEX_START_AWS_PROFILE or AWS_PROFILE.'
+  fi
+}
+
+check_kube_context() {
+  local ctx=$1
+  if kubectl --context "$ctx" get namespace kube-system --request-timeout=10s >/dev/null 2>&1; then
+    log "Kubernetes context '$ctx' is reachable."
+  else
+    warn "Kubernetes context '$ctx' is missing, expired, or not reachable."
+  fi
+}
+
+check_kubernetes() {
+  require_cmd kubectl || return 0
+
+  local contexts="$kube_contexts"
+  if [[ -z "$contexts" ]]; then
+    if current=$(kubectl config current-context 2>/dev/null); then
+      contexts="$current"
+    else
+      warn 'No active kubectl context found.'
+      return 0
+    fi
+  fi
+
+  local ctx
+  for ctx in $contexts; do
+    check_kube_context "$ctx"
+  done
+}
+
+check_mcp_configured() {
+  local name=$1
+  require_cmd codex || return 0
+  if codex mcp get "$name" >/dev/null 2>&1; then
+    log "MCP server '$name' is configured."
+  else
+    warn "MCP server '$name' is not configured."
+  fi
+}
+
+check_terraform_cloud() {
+  check_mcp_configured 'terraform-cloud'
+  if [[ -n "${TFC_TOKEN:-}" ]]; then
+    log 'Terraform Cloud token is present in the shell environment.'
+    return 0
+  fi
+  if grep -q '\[mcp_servers\.terraform-cloud\.env\]' "$HOME/.codex/config.toml" 2>/dev/null; then
+    log 'Terraform Cloud token is present in Codex config.'
+  else
+    warn 'Terraform Cloud token was not found in the shell environment or Codex config.'
+  fi
+}
+
+check_passive_mcp_servers() {
+  local server
+  for server in $mcp_passive_servers; do
+    case "$server" in
+      terraform-cloud)
+        check_terraform_cloud
+        ;;
+      kubernetes)
+        check_mcp_configured 'kubernetes'
+        ;;
+      *)
+        check_mcp_configured "$server"
+        ;;
+    esac
+  done
+}
+
+check_oauth_mcp_server() {
+  local name=$1
+  require_cmd codex || return 0
+
+  if ! codex mcp get "$name" >/dev/null 2>&1; then
+    warn "MCP server '$name' is not configured."
+    return 0
+  fi
+
+  if [[ "$check_only" -eq 1 ]]; then
+    log "MCP server '$name' is configured."
+    return 0
+  fi
+
+  if [[ "$refresh_mcp" -ne 1 ]]; then
+    log "Skipping OAuth refresh for MCP server '$name' (use --refresh-mcp to refresh)."
+    return 0
+  fi
+
+  if confirm "Refresh/login MCP server '$name' now?"; then
+    if codex mcp login "$name"; then
+      log "MCP server '$name' is ready."
+    else
+      warn "MCP login for '$name' did not complete successfully."
+    fi
+  fi
+}
+
+main() {
+  require_cmd codex || exit 1
+
+  log 'Running Codex auth preflight.'
+  check_gh
+  check_aws
+  check_kubernetes
+  check_passive_mcp_servers
+
+  local server
+  for server in $mcp_oauth_servers; do
+    check_oauth_mcp_server "$server"
+  done
+
+  if [[ "$launch_codex" -eq 1 ]]; then
+    log 'Starting Codex.'
+    if [[ ${#codex_args[@]} -gt 0 ]]; then
+      exec codex "${codex_args[@]}"
+    fi
+    exec codex
+  fi
+
+  log 'Preflight complete.'
+}
+
+main "$@"
