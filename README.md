@@ -48,8 +48,13 @@ codex-start --check-only
 - ✅ GitHub CLI auth check
 - ✅ AWS CLI auth check
 - ✅ Kubernetes context validation
-- ✅ MCP server configuration checks
+- ✅ MCP server configuration checks for the full local stack
 - ✅ Optional OAuth MCP refresh before launching Codex
+
+By default, `codex-start` verifies these passive MCP registrations:
+`chrome-devtools`, `kubernetes`, `terraform-cloud`, `terraform`, `argocd-sbx`, `github`, `context7`, `datadog_us`, `datadog_eu`, `aws-knowledge-mcp-server`, `openaiDeveloperDocs`, and `victorops`.
+
+OAuth refresh remains focused on `atlassian` and `webexapis`.
 
 [Full Documentation →](tools/codex-start/README.md)
 

@@ -61,9 +61,24 @@ codex-start -- --model gpt-5.4
 export CODEX_START_AWS_PROFILE=aidevops
 export CODEX_START_KUBE_CONTEXTS="dev-sre-1-us-west-2 tools-sre-us-west-2"
 export CODEX_START_MCP_OAUTH_SERVERS="atlassian webexapis"
-export CODEX_START_MCP_PASSIVE_SERVERS="terraform-cloud kubernetes"
+export CODEX_START_MCP_PASSIVE_SERVERS="chrome-devtools kubernetes terraform-cloud terraform argocd-sbx github context7 datadog_us datadog_eu aws-knowledge-mcp-server openaiDeveloperDocs victorops"
 export CODEX_START_REFRESH_MCP=1
 ```
+
+Default passive MCP checks cover:
+
+- `chrome-devtools`
+- `kubernetes`
+- `terraform-cloud`
+- `terraform`
+- `argocd-sbx`
+- `github`
+- `context7`
+- `datadog_us`
+- `datadog_eu`
+- `aws-knowledge-mcp-server`
+- `openaiDeveloperDocs`
+- `victorops`
 
 ## Team rollout notes
 
