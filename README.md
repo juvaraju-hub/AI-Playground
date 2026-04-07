@@ -2,6 +2,18 @@
 
 Shareable Claude Code skills and tools for development teams.
 
+## 🚀 Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/juvaraju-hub/AI-Playground/main/scripts/install.sh | bash
+```
+
+That's it! For detailed setup, see:
+- **[QUICKSTART.md](QUICKSTART.md)** - 5-minute quick start guide
+- **[INSTALL.md](INSTALL.md)** - Complete installation guide with prerequisites
+
+---
+
 ## 📦 What's Inside
 
 ### Claude Start Skill
@@ -113,6 +125,16 @@ Parallel bootstrap and preflight validation skill for Codex environments.
 
 [Full Documentation →](.codex/skills/codex-start/README.md)
 
+## 📖 Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [QUICKSTART.md](QUICKSTART.md) | 5-minute quick start |
+| [INSTALL.md](INSTALL.md) | Complete installation guide |
+| [docs/mcp-setup/INDEX.md](docs/mcp-setup/INDEX.md) | MCP setup documentation |
+| [docs/mcp-setup/OAUTH_GUIDE.md](docs/mcp-setup/OAUTH_GUIDE.md) | OAuth authentication |
+| [docs/mcp-setup/QUICKSTART.txt](docs/mcp-setup/QUICKSTART.txt) | Quick reference card |
+
 ## 🚀 Using These Skills in Your Project
 
 ### Option 1: Copy to Your Repo
@@ -223,11 +245,40 @@ Want to add more skills? Great!
 3. **Customize with `.claude-start.sh`** - Add project-specific checks
 4. **Keep skills updated** - Pull improvements from this repo periodically
 
+## 🏃 Quick Start for New Team Members
+
+### 1. Install Everything
+```bash
+curl -fsSL https://raw.githubusercontent.com/juvaraju-hub/AI-Playground/main/scripts/install.sh | bash
+```
+
+### 2. Reload Shell
+```bash
+source ~/.zshrc  # or ~/.bashrc
+```
+
+### 3. Run Preflight
+```bash
+claude-start --check-only  # or codex-start
+```
+
+### 4. Set Up OAuth (Claude Code)
+```bash
+claude-start --refresh-mcp
+```
+
+**Done!** See [QUICKSTART.md](QUICKSTART.md) for more details.
+
 ## 📖 Resources
 
-- [Claude Code Documentation](https://docs.anthropic.com/claude/docs/claude-code)
-- [Creating Custom Skills](https://docs.anthropic.com/claude/docs/skills)
-- [MCP Servers](https://modelcontextprotocol.io/docs)
+- **Installation**
+  - [Quick Start Guide](QUICKSTART.md)
+  - [Full Installation Guide](INSTALL.md)
+  - [MCP Setup](docs/mcp-setup/INDEX.md)
+- **External**
+  - [Claude Code Documentation](https://docs.anthropic.com/claude/docs/claude-code)
+  - [Creating Custom Skills](https://docs.anthropic.com/claude/docs/skills)
+  - [MCP Servers](https://modelcontextprotocol.io/docs)
 
 ## 💡 Examples
 
