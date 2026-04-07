@@ -1,0 +1,67 @@
+╔════════════════════════════════════════════════════════════════╗
+║         CLAUDE CODE MCP SETUP - QUICK REFERENCE                ║
+╚════════════════════════════════════════════════════════════════╝
+
+✅ STATUS: 14/14 MCP SERVERS REGISTERED
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚀 START CLAUDE CODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ccx                    # Use alias
+  claude-start           # Full preflight checks
+  claude                 # Direct launch
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 CHECK STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  claude mcp list        # List all MCP servers
+  ~/.config/claude-code/verify-mcps.sh  # Full verification
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ WORKING (9/14)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✓ atlassian            Jira/Confluence
+  ✓ webexapis            Webex APIs
+  ✓ aws-knowledge        AWS docs
+  ✓ openaiDeveloperDocs  OpenAI docs
+  ✓ chrome-devtools      Chrome DevTools
+  ✓ context7             Context management
+  ✓ terraform            Terraform
+  ✓ victorops            VictorOps
+  ✓ kubernetes           K8s clusters
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔐 NEEDS AUTH (2/14) - Individual Control!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! datadog_us           Asked separately
+  ! datadog_eu           Asked separately
+
+  → claude-start --refresh-mcp (choose which to auth now)
+  → Each server prompts individually - YOU control when!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  NEEDS FIX (3/14)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✗ github               Fix: export GITHUB_PAT_TOKEN=$(gh auth token)
+  ✗ terraform-cloud      Fix: Re-register with token
+  ✗ argocd-sbx           Fix: Check network/auth
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 QUICK FIXES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # Fix GitHub
+  export GITHUB_PAT_TOKEN=$(gh auth token)
+
+  # Re-register all
+  ~/.config/claude-code/register-mcps.sh
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For detailed documentation, see:
+  ~/.config/claude-code/SETUP_COMPLETE.md

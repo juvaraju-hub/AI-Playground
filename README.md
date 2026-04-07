@@ -58,6 +58,37 @@ OAuth refresh remains focused on `atlassian` and `webexapis`.
 
 [Full Documentation →](tools/codex-start/README.md)
 
+### Claude Start (Launcher)
+
+Reusable Claude Code preflight launcher with enhanced MCP management and individual OAuth control.
+
+**Location:** `tools/claude-start/`
+
+**Quick start:**
+```bash
+cd tools/claude-start
+./install.sh
+
+claude-start
+claude-start --refresh-mcp      # Individual OAuth control
+claude-start --check-only
+```
+
+**Features:**
+- ✅ GitHub CLI auth check
+- ✅ AWS CLI auth check
+- ✅ Kubernetes context validation
+- ✅ 14 MCP servers configured (migrated from Codex)
+- ✅ **Individual OAuth control** - Choose which servers to authenticate
+- ✅ Automatic browser-based OAuth flows
+- ✅ Datadog US and EU handled separately
+
+**MCP Servers (14 total):**
+- **OAuth (5):** atlassian, webexapis, datadog_us, datadog_eu, argocd-sbx
+- **Passive (9):** github, context7, terraform, terraform-cloud, victorops, aws-knowledge-mcp-server, openaiDeveloperDocs, kubernetes, chrome-devtools
+
+[Full MCP Documentation →](docs/mcp-setup/INDEX.md)
+
 ### Codex Start Skill
 
 Parallel bootstrap and preflight validation skill for Codex environments.
@@ -136,6 +167,34 @@ More skills coming soon!
 | Tool | Description | Usage |
 |------|-------------|-------|
 | **codex-start** | Codex bootstrap & preflight launcher | `codex-start [--refresh-mcp] [--check-only]` |
+| **claude-start** | Claude Code launcher with OAuth control | `claude-start [--refresh-mcp] [--check-only]` |
+
+### Claude Start Features
+
+The **claude-start** launcher includes advanced MCP OAuth management:
+
+- **Individual Control:** Each OAuth server asks separately - YOU choose which to authenticate now vs later
+- **Datadog Separation:** US and EU regions handled independently
+- **Friendly Names:** "Atlassian (Jira/Confluence)" not "atlassian"
+- **Usage Examples:** Shows how to use each server
+- **Detailed Summary:** Connected/Authenticated/Skipped counts
+
+```bash
+# Interactive - choose which servers to authenticate
+claude-start --refresh-mcp
+
+# Example flow:
+# → Authenticate Atlassian (Jira/Confluence) now? (y/N) y
+# → Authenticate Datadog US Region now? (y/N) y
+# → Authenticate Datadog EU Region now? (y/N) n  ← Skip for later
+#
+# Summary:
+#   ✓ Already connected:     2 server(s)
+#   ✓ Authenticated now:     2 server(s)
+#   ⊘ Skipped (for later):   1 server(s)
+```
+
+[Complete MCP Setup Guide →](docs/mcp-setup/INDEX.md)
 
 ## 🤝 Contributing
 

@@ -1,0 +1,528 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Codex-style preflight launcher for Claude Code
+# Checks login/readiness for common tools before launching Claude
+
+# Configuration via environment variables
+AWS_PROFILE_TO_CHECK="${CODEX_START_AWS_PROFILE:-${AWS_PROFILE:-}}"
+# OAuth servers - each will be asked individually for authentication
+MCP_OAUTH_SERVERS="${CODEX_START_MCP_OAUTH_SERVERS:-atlassian webexapis datadog_us datadog_eu}"
+MCP_PASSIVE_SERVERS="${CODEX_START_MCP_PASSIVE_SERVERS:-github context7 terraform terraform-cloud victorops aws-knowledge-mcp-server openaiDeveloperDocs kubernetes chrome-devtools}"
+REFRESH_MCP="${CODEX_START_REFRESH_MCP:-0}"
+KUBE_CONTEXTS="${CODEX_START_KUBE_CONTEXTS:-}"
+OPEN_AWS_CONSOLE="${CODEX_START_OPEN_AWS_CONSOLE:-0}"
+USE_BEDROCK="${CLAUDE_CODE_USE_BEDROCK:-${CODEX_START_USE_BEDROCK:-1}}"
+
+# Flags
+CHECK_ONLY=0
+NO_LAUNCH=0
+NO_PROMPT=0
+HELP=0
+SETUP_MCP=0
+
+# Parse flags
+CLAUDE_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check-only)
+      CHECK_ONLY=1
+      NO_LAUNCH=1
+      shift
+      ;;
+    --no-launch)
+      NO_LAUNCH=1
+      shift
+      ;;
+    --yes|--no-prompt)
+      NO_PROMPT=1
+      shift
+      ;;
+    --refresh-mcp)
+      REFRESH_MCP=1
+      shift
+      ;;
+    --setup-mcp)
+      SETUP_MCP=1
+      REFRESH_MCP=1
+      shift
+      ;;
+    --open-aws-console)
+      OPEN_AWS_CONSOLE=1
+      shift
+      ;;
+    --help)
+      HELP=1
+      shift
+      ;;
+    *)
+      CLAUDE_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Help text
+if [[ $HELP -eq 1 ]]; then
+  cat <<'EOF'
+claude-start - Preflight launcher for Claude Code
+
+Usage: claude-start [options] [args...]
+
+Options:
+  --check-only        Run checks without launching Claude
+  --no-launch         Run checks but don't launch Claude
+  --yes, --no-prompt  Skip interactive prompts (auto-authenticate all OAuth servers)
+  --refresh-mcp       Check OAuth MCP servers and ask individually whether to authenticate
+                      (You control which servers to authenticate right now vs later)
+                      Opens browser automatically for OAuth flow, like Codex
+  --setup-mcp         Same as --refresh-mcp (triggers OAuth authentication)
+  --open-aws-console  Open AWS console after successful auth
+  --help              Show this help
+
+Environment Variables:
+  CODEX_START_AWS_PROFILE         AWS profile to check
+  CODEX_START_MCP_OAUTH_SERVERS   Space-separated OAuth MCP servers
+                                  (default: atlassian webexapis datadog_us datadog_eu)
+                                  Each server will be asked individually for authentication
+  CODEX_START_MCP_PASSIVE_SERVERS Space-separated passive MCP servers
+                                  (default: github context7 terraform terraform-cloud victorops
+                                   aws-knowledge-mcp-server openaiDeveloperDocs kubernetes
+                                   chrome-devtools)
+  CODEX_START_REFRESH_MCP         Set to 1 to refresh MCP on every run
+  CODEX_START_KUBE_CONTEXTS       Space-separated k8s contexts to validate
+  CODEX_START_OPEN_AWS_CONSOLE    Set to 1 to open AWS console after auth
+  CODEX_START_USE_BEDROCK         Set to 1 to use AWS Bedrock (default: 1)
+  CLAUDE_CODE_USE_BEDROCK         Alternative to CODEX_START_USE_BEDROCK
+
+Any remaining arguments are forwarded to the claude command.
+
+Examples:
+  claude-start                    # Run checks and launch Claude
+  claude-start --check-only       # Just run checks
+  claude-start --refresh-mcp      # Check MCP OAuth and launch
+  ccx                             # Use the alias
+EOF
+  exit 0
+fi
+
+log() {
+  echo "[claude-start] $*"
+}
+
+warn() {
+  echo "[claude-start] WARNING: $*" >&2
+}
+
+error() {
+  echo "[claude-start] ERROR: $*" >&2
+}
+
+prompt_user() {
+  local message="$1"
+  local command="$2"
+
+  if [[ $NO_PROMPT -eq 1 || $CHECK_ONLY -eq 1 ]]; then
+    log "Would prompt: $message"
+    log "  Command: $command"
+    return 1
+  fi
+
+  echo ""
+  log "$message"
+  read -p "[claude-start] Run: $command ? (y/N) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# Check GitHub authentication
+check_github() {
+  log "Checking GitHub authentication..."
+
+  if ! command -v gh &> /dev/null; then
+    warn "gh CLI not found, skipping GitHub check"
+    return 0
+  fi
+
+  if gh auth status -h github.com &> /dev/null; then
+    log "✓ GitHub authenticated"
+    return 0
+  else
+    warn "GitHub not authenticated"
+    if prompt_user "GitHub authentication required" "gh auth login -h github.com"; then
+      gh auth login -h github.com
+      log "✓ GitHub authenticated"
+    fi
+    return 0
+  fi
+}
+
+# Check AWS authentication
+check_aws() {
+  log "Checking AWS authentication..."
+
+  if ! command -v aws &> /dev/null; then
+    warn "aws CLI not found, skipping AWS check"
+    return 0
+  fi
+
+  local aws_cmd="aws sts get-caller-identity"
+  if [[ -n "$AWS_PROFILE_TO_CHECK" ]]; then
+    aws_cmd="aws --profile $AWS_PROFILE_TO_CHECK sts get-caller-identity"
+  fi
+
+  if eval "$aws_cmd" &> /dev/null; then
+    log "✓ AWS authenticated"
+    if [[ $OPEN_AWS_CONSOLE -eq 1 ]]; then
+      log "Opening AWS console..."
+      open "https://console.aws.amazon.com/" 2>/dev/null || warn "Could not open AWS console"
+    fi
+    return 0
+  else
+    warn "AWS not authenticated or session expired"
+    if [[ -n "$AWS_PROFILE_TO_CHECK" ]]; then
+      if prompt_user "AWS SSO login required" "aws sso login --profile $AWS_PROFILE_TO_CHECK"; then
+        aws sso login --profile "$AWS_PROFILE_TO_CHECK"
+        log "✓ AWS authenticated"
+        if [[ $OPEN_AWS_CONSOLE -eq 1 ]]; then
+          log "Opening AWS console..."
+          open "https://console.aws.amazon.com/" 2>/dev/null || warn "Could not open AWS console"
+        fi
+      fi
+    else
+      warn "No AWS profile configured (set CODEX_START_AWS_PROFILE or AWS_PROFILE)"
+    fi
+    return 0
+  fi
+}
+
+# Check Kubernetes authentication
+check_kubernetes() {
+  log "Checking Kubernetes authentication..."
+
+  if ! command -v kubectl &> /dev/null; then
+    warn "kubectl not found, skipping Kubernetes check"
+    return 0
+  fi
+
+  local contexts_to_check=()
+  if [[ -n "$KUBE_CONTEXTS" ]]; then
+    read -ra contexts_to_check <<< "$KUBE_CONTEXTS"
+  else
+    local current_ctx
+    current_ctx=$(kubectl config current-context 2>/dev/null || echo "")
+    if [[ -n "$current_ctx" ]]; then
+      contexts_to_check=("$current_ctx")
+    else
+      warn "No current Kubernetes context set"
+      return 0
+    fi
+  fi
+
+  for ctx in "${contexts_to_check[@]}"; do
+    log "Validating context: $ctx"
+    if kubectl --context "$ctx" get namespace kube-system --request-timeout=10s &> /dev/null; then
+      log "✓ Kubernetes context '$ctx' accessible"
+    else
+      warn "Kubernetes context '$ctx' not accessible"
+    fi
+  done
+
+  return 0
+}
+
+# Check passive MCP services
+check_mcp_passive() {
+  log "Checking passive MCP services..."
+
+  if [[ -z "$MCP_PASSIVE_SERVERS" ]]; then
+    log "No passive MCP servers configured"
+    return 0
+  fi
+
+  for server in $MCP_PASSIVE_SERVERS; do
+    case "$server" in
+      terraform-cloud)
+        if [[ -n "${TFC_TOKEN:-}" ]]; then
+          log "✓ Terraform Cloud token configured (env)"
+        elif [[ -f "$HOME/.terraform.d/credentials.tfrc.json" ]]; then
+          log "✓ Terraform Cloud credentials file exists"
+        else
+          warn "Terraform Cloud not configured (no TFC_TOKEN or credentials file)"
+        fi
+        ;;
+      terraform)
+        if [[ -f "$HOME/.config/codex/mcp-terraform.env" ]]; then
+          log "✓ Terraform MCP env file exists"
+        else
+          warn "Terraform MCP env file missing at ~/.config/codex/mcp-terraform.env"
+        fi
+        ;;
+      victorops)
+        if [[ -f "$HOME/.config/codex/mcp-victorops.env" ]]; then
+          log "✓ VictorOps MCP env file exists"
+        else
+          warn "VictorOps MCP env file missing at ~/.config/codex/mcp-victorops.env"
+        fi
+        ;;
+      kubernetes)
+        # Already checked via check_kubernetes
+        log "✓ Kubernetes checked separately"
+        ;;
+      github)
+        if [[ -n "${GITHUB_PAT_TOKEN:-}" ]]; then
+          log "✓ GitHub PAT token configured"
+        elif command -v gh &> /dev/null && gh auth token &> /dev/null; then
+          export GITHUB_PAT_TOKEN=$(gh auth token)
+          log "✓ GitHub PAT token from gh CLI"
+        else
+          warn "GitHub PAT token not configured"
+        fi
+        ;;
+      chrome-devtools|context7|aws-knowledge-mcp-server|openaiDeveloperDocs)
+        log "✓ $server configured in ~/.mcp.json"
+        ;;
+      *)
+        warn "Unknown passive MCP server: $server"
+        ;;
+    esac
+  done
+
+  return 0
+}
+
+# Get friendly name for MCP server
+get_server_friendly_name() {
+  local server=$1
+  case "$server" in
+    atlassian) echo "Atlassian (Jira/Confluence)" ;;
+    webexapis) echo "Webex APIs" ;;
+    datadog_us) echo "Datadog US Region" ;;
+    datadog_eu) echo "Datadog EU Region" ;;
+    *) echo "$server" ;;
+  esac
+}
+
+# Get example usage for MCP server
+get_server_example() {
+  local server=$1
+  case "$server" in
+    atlassian) echo "Ask: 'Search my Jira issues'" ;;
+    webexapis) echo "Ask: 'Show my Webex teams'" ;;
+    datadog_us|datadog_eu) echo "Ask: 'Show my Datadog monitors'" ;;
+    *) echo "Ask Claude to use $server" ;;
+  esac
+}
+
+# Trigger OAuth authentication for a server using Claude Code
+trigger_claude_oauth() {
+  local server=$1
+  local friendly_name=$(get_server_friendly_name "$server")
+
+  log "Triggering OAuth for: $friendly_name"
+  log "  → Opening browser for authentication..."
+
+  # Try codex mcp login first as a fallback (shares OAuth flow)
+  if command -v codex &> /dev/null; then
+    log "  → Using Codex to initiate OAuth flow"
+    if codex mcp login "$server" 2>&1; then
+      log "  ✓ OAuth completed for $friendly_name"
+      return 0
+    else
+      warn "  ✗ OAuth via Codex failed for $friendly_name"
+      return 1
+    fi
+  else
+    warn "  Codex not found - manual authentication required"
+    log "  → Launch Claude and $(get_server_example "$server")"
+    return 1
+  fi
+}
+
+# Check OAuth MCP services with individual control
+check_mcp_oauth() {
+  if [[ $REFRESH_MCP -ne 1 ]]; then
+    log "Skipping OAuth MCP checks (use --refresh-mcp to enable)"
+    return 0
+  fi
+
+  log "Checking OAuth MCP services..."
+
+  if ! command -v claude &> /dev/null; then
+    warn "claude command not found, skipping MCP OAuth checks"
+    return 0
+  fi
+
+  if [[ -z "$MCP_OAUTH_SERVERS" ]]; then
+    log "No OAuth MCP servers configured"
+    return 0
+  fi
+
+  # Get all MCP server statuses at once (faster than individual checks)
+  local mcp_list_output
+  if ! mcp_list_output=$(claude mcp list 2>&1); then
+    warn "Failed to list MCP servers"
+    return 0
+  fi
+
+  local has_any_auth_needed=0
+  local servers_needing_auth=()
+  local servers_connected=()
+
+  echo ""
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "OAuth MCP Server Status"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Check all servers and collect status
+  for server in $MCP_OAUTH_SERVERS; do
+    local friendly_name=$(get_server_friendly_name "$server")
+
+    # Check if this server appears in the list output
+    if ! echo "$mcp_list_output" | grep -qi "^$server:"; then
+      log "  ⊘ $friendly_name - Not configured"
+      continue
+    fi
+
+    # Check the status line for this server
+    local server_status
+    server_status=$(echo "$mcp_list_output" | grep -i "^$server:" | head -1)
+
+    if echo "$server_status" | grep -qiE "Needs authentication|Failed to connect|✗"; then
+      log "  ⚠️  $friendly_name - Needs authentication"
+      servers_needing_auth+=("$server")
+      has_any_auth_needed=1
+    elif echo "$server_status" | grep -qiE "Connected|✓"; then
+      log "  ✓ $friendly_name - Connected"
+      servers_connected+=("$server")
+    else
+      log "  ? $friendly_name - Status unknown"
+    fi
+  done
+
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+
+  # If no servers need auth, we're done
+  if [[ $has_any_auth_needed -eq 0 ]]; then
+    log "✓ All OAuth MCP servers are authenticated"
+    return 0
+  fi
+
+  # If in check-only mode, just report
+  if [[ $CHECK_ONLY -eq 1 ]]; then
+    log "Check-only mode: ${#servers_needing_auth[@]} server(s) need authentication"
+    return 0
+  fi
+
+  # Ask about each server individually
+  local auth_success_count=0
+  local auth_skip_count=0
+
+  for server in "${servers_needing_auth[@]}"; do
+    local friendly_name=$(get_server_friendly_name "$server")
+    local example=$(get_server_example "$server")
+
+    echo ""
+    log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log "Server: $friendly_name"
+    log "Status: Needs authentication"
+    log "Usage: $example"
+    log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # Ask user if they want to authenticate this specific server
+    local should_auth=0
+    if [[ $NO_PROMPT -eq 1 ]]; then
+      should_auth=1
+      log "Auto-authenticating (--yes mode)"
+    else
+      echo ""
+      read -p "[claude-start] Authenticate $friendly_name now? (y/N) " -n 1 -r
+      echo ""
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        should_auth=1
+      else
+        log "⊘ Skipping $friendly_name - will authenticate when used in Claude"
+        auth_skip_count=$((auth_skip_count + 1))
+      fi
+    fi
+
+    # Authenticate if user confirmed
+    if [[ $should_auth -eq 1 ]]; then
+      if trigger_claude_oauth "$server"; then
+        auth_success_count=$((auth_success_count + 1))
+      else
+        log ""
+        log "⚠️  Manual authentication required for $friendly_name:"
+        log "  1. Launch Claude Code: claude"
+        log "  2. $example"
+        log "  3. Browser will open for OAuth"
+      fi
+    fi
+  done
+
+  # Summary
+  echo ""
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "OAuth Authentication Summary"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "  ✓ Already connected:     ${#servers_connected[@]} server(s)"
+  log "  ✓ Authenticated now:     $auth_success_count server(s)"
+  log "  ⊘ Skipped (for later):   $auth_skip_count server(s)"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  if [[ $auth_skip_count -gt 0 ]]; then
+    echo ""
+    log "ℹ️  Skipped servers will prompt for authentication when you"
+    log "   ask Claude to use them (browser opens automatically)"
+  fi
+  echo ""
+
+  return 0
+}
+
+# Main preflight checks
+run_checks() {
+  log "Running preflight checks..."
+  check_github
+  check_aws
+  check_kubernetes
+  check_mcp_passive
+  check_mcp_oauth
+  log "Preflight checks complete"
+}
+
+# Launch Claude Code
+launch_claude() {
+  if [[ $NO_LAUNCH -eq 1 ]]; then
+    log "Skipping Claude launch (--no-launch or --check-only)"
+    return 0
+  fi
+
+  if ! command -v claude &> /dev/null; then
+    error "claude command not found in PATH"
+    exit 1
+  fi
+
+  log "Launching Claude Code..."
+
+  # Export Bedrock setting
+  if [[ $USE_BEDROCK -eq 1 ]]; then
+    export CLAUDE_CODE_USE_BEDROCK=1
+    log "Using AWS Bedrock (CLAUDE_CODE_USE_BEDROCK=1)"
+  fi
+
+  # Handle empty args case with set -u
+  if [[ ${#CLAUDE_ARGS[@]} -eq 0 ]]; then
+    exec claude
+  else
+    exec claude "${CLAUDE_ARGS[@]}"
+  fi
+}
+
+# Main execution
+run_checks
+launch_claude
