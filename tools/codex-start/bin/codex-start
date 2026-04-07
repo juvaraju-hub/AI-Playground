@@ -8,7 +8,7 @@ refresh_mcp=${CODEX_START_REFRESH_MCP:-0}
 open_aws_console=${CODEX_START_OPEN_AWS_CONSOLE:-0}
 aws_profile_name=${CODEX_START_AWS_PROFILE:-${AWS_PROFILE:-}}
 mcp_oauth_servers=${CODEX_START_MCP_OAUTH_SERVERS:-"atlassian webexapis"}
-mcp_passive_servers=${CODEX_START_MCP_PASSIVE_SERVERS:-"terraform-cloud kubernetes"}
+mcp_passive_servers=${CODEX_START_MCP_PASSIVE_SERVERS:-"chrome-devtools kubernetes terraform-cloud terraform argocd-sbx github context7 datadog_us datadog_eu aws-knowledge-mcp-server openaiDeveloperDocs victorops"}
 kube_contexts=${CODEX_START_KUBE_CONTEXTS:-}
 
 declare -a codex_args=()
