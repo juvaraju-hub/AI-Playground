@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Monthly Aidev GPU cost report. Builds the workbook, stores it, and emails it on the 5th.
+
+Parameters:
+  AccountLabel:
+    Type: String
+    Default: Aidev
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9 .()_-]{0,40}$"
+    Description: Name shown in the workbook and email.
+  FromAddress:
+    Type: String
+    Default: juvaraju@cisco.com
+    AllowedPattern: "^[A-Za-z0-9._%+-]+@cisco\\.com$"
+    Description: SES From address on the verified cisco.com domain.
+  ToAddress:
+    Type: String
+    Default: juvaraju@cisco.com
+    AllowedPattern: "^([A-Za-z0-9._%+-]+@cisco\\.com)(,[A-Za-z0-9._%+-]+@cisco\\.com)*$"
+    Description: Comma-separated cisco.com recipients for this account report.
+  ConfigurationSetName:
+    Type: String
+    Default: ai_canvas_nonprod
+    AllowedPattern: "^[A-Za-z0-9_-]{1,64}$"
+    Description: SES configuration set attached to the cisco.com identity.
+
+Resources:
+  ReportBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-reports
+            Status: Enabled
+            ExpirationInDays: 730
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+
+  ReportBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ReportBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt ReportBucket.Arn
+              - !Sub "${ReportBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  FromAddressParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/from-address"
+      Type: String
+      Value: !Ref FromAddress
+      Description: From address for the GPU cost report email.
+
+  ToAddressParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/to-address"
+      Type: String
+      Value: !Ref ToAddress
+      Description: To addresses for the GPU cost report email.
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  ReportLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-report"
+      RetentionInDays: 30
+
+  ReportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: gpu-cost-report
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "${ReportLogGroup.Arn}:*"
+              - Sid: ReadCostExplorer
+                Effect: Allow
+                Action:
+                  - ce:GetCostAndUsage
+                Resource: "*"
+              - Sid: StoreReport
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "${ReportBucket.Arn}/*"
+              - Sid: ReadMailSettings
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/from-address"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/to-address"
+              - Sid: SendReportMail
+                Effect: Allow
+                Action:
+                  - ses:SendRawEmail
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/cisco.com"
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${ConfigurationSetName}"
+              - Sid: SendToDeadLetter
+                Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt DeadLetterQueue.Arn
+
+  ReportFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ReportLogGroup
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-report"
+      Description: Build the Aidev GPU cost workbook and email it.
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt ReportRole.Arn
+      Timeout: 180
+      MemorySize: 512
+      ReservedConcurrentExecutions: 1
+      DeadLetterConfig:
+        TargetArn: !GetAtt DeadLetterQueue.Arn
+      Environment:
+        Variables:
+          REPORT_BUCKET: !Ref ReportBucket
+          ACCOUNT_LABEL: !Ref AccountLabel
+          FROM_PARAMETER: !Ref FromAddressParameter
+          TO_PARAMETER: !Ref ToAddressParameter
+      Code: function/
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: invoke-report
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: InvokeReport
+                Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt ReportFunction.Arn
+              - Sid: SendToDeadLetter
+                Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt DeadLetterQueue.Arn
+
+  MonthlySchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub "${AWS::StackName}-monthly"
+      Description: Send the GPU cost report at 09:00 IST on the 5th of each month.
+      ScheduleExpression: "cron(0 9 5 * ? *)"
+      ScheduleExpressionTimezone: Asia/Kolkata
+      State: ENABLED
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt ReportFunction.Arn
+        RoleArn: !GetAtt SchedulerRole.Arn
+        RetryPolicy:
+          MaximumRetryAttempts: 2
+          MaximumEventAgeInSeconds: 3600
+        DeadLetterConfig:
+          Arn: !GetAtt DeadLetterQueue.Arn
+
+Outputs:
+  ReportFunctionName:
+    Description: Lambda function that builds and sends the report.
+    Value: !Ref ReportFunction
+  ReportBucketName:
+    Description: Bucket that stores the workbooks.
+    Value: !Ref ReportBucket
+  ScheduleName:
+    Description: Monthly schedule name.
+    Value: !Ref MonthlySchedule
+  FromParameterName:
+    Description: SSM parameter for the From address.
+    Value: !Ref FromAddressParameter
+  ToParameterName:
+    Description: SSM parameter for the To addresses.
+    Value: !Ref ToAddressParameter
+  DeadLetterQueueUrl:
+    Description: Queue that receives failed report runs.
+    Value: !Ref DeadLetterQueue
