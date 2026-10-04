@@ -1,0 +1,6 @@
+function/openpyxl/
+function/et_xmlfile/
+function/*.dist-info/
+function/__pycache__/
+packaged.yaml
+.aws-sam/
